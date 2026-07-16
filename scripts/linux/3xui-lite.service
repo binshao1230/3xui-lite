@@ -1,0 +1,18 @@
+[Unit]
+Description=3xui-lite panel (Xray / sing-box)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/3xui-lite
+Environment=XUI_LISTEN=0.0.0.0:18080
+Environment=XUI_DATA=/opt/3xui-lite/data
+Environment=XRAY_BIN=/opt/3xui-lite/bin/xray
+Environment=SINGBOX_BIN=/opt/3xui-lite/bin/sing-box
+ExecStart=/opt/3xui-lite/3xui-lite
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

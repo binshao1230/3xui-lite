@@ -1,0 +1,26 @@
+# data & runtime
+/data/
+*.db
+*.log
+panel.pid
+
+# build outputs
+/dist/
+*.exe
+3xui-lite
+3xui-lite.exe
+
+# cores (large binaries — download via install or pack scripts)
+/bin/*
+!/bin/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# local notes
+使用说明.txt
+*.tmp

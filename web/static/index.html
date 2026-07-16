@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3xui-lite</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t !== "light" && t !== "dark") t = "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Login -->
+    <div id="view-login" class="login-wrap">
+      <div class="login-theme">
+        <div class="theme-toggle" data-theme-toggle>
+          <button type="button" data-theme-set="dark">深色</button>
+          <button type="button" data-theme-set="light">浅色</button>
+        </div>
+      </div>
+      <div class="card login-card">
+        <h1>3xui-lite</h1>
+        <p class="muted">精简面板 · VLESS / SS2022 / 中转 · 双内核</p>
+        <label>用户名</label>
+        <input id="login-user" value="admin" autocomplete="username" />
+        <label>密码</label>
+        <input id="login-pass" type="password" value="admin" autocomplete="current-password" />
+        <button class="btn primary block" id="btn-login">登录</button>
+        <p id="login-err" class="err"></p>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div id="view-main" class="hidden">
+      <aside class="sidebar">
+        <div class="brand">3xui-lite</div>
+        <nav>
+          <button data-tab="dashboard" class="nav active">仪表盘</button>
+          <button data-tab="inbounds" class="nav">入站管理</button>
+          <button data-tab="xray" class="nav">内核</button>
+          <button data-tab="settings" class="nav">设置</button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="theme-toggle" data-theme-toggle>
+            <button type="button" data-theme-set="dark">深色</button>
+            <button type="button" data-theme-set="light">浅色</button>
+          </div>
+          <button class="btn ghost block" id="btn-logout">退出</button>
+        </div>
+      </aside>
+      <main class="content">
+        <section id="tab-dashboard" class="tab">
+          <h2>仪表盘</h2>
+          <div class="grid stats" id="stats"></div>
+          <div class="card" style="margin-top:1.15rem">
+            <strong style="letter-spacing:-0.01em">快速开始</strong>
+            <p class="muted" style="margin:.4rem 0 .9rem;font-size:.88rem;line-height:1.55">没有节点时，点下面一键生成即可用；需要细调可到「入站管理」手动编辑。</p>
+            <div class="row gap" style="flex-wrap:wrap">
+              <button class="btn primary" data-quick="vless-reality">一键 VLESS Reality</button>
+              <button class="btn" data-quick="ss2022">一键 SS2022</button>
+              <button class="btn" id="btn-goto-inbounds">去入站管理</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-inbounds" class="tab hidden">
+          <div class="row between">
+            <h2>入站管理</h2>
+            <div class="row gap">
+              <button class="btn" id="btn-new-inbound">手动新建</button>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:1.15rem">
+            <div class="row between" style="margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem">
+              <div>
+                <strong style="letter-spacing:-0.01em">一键生成</strong>
+                <div class="muted" style="font-size:.85rem;margin-top:.3rem;line-height:1.5">自动分配端口、密钥、客户端与分享链接，生成后仍可点「编辑」修改</div>
+              </div>
+            </div>
+            <div class="row gap" style="flex-wrap:wrap">
+              <button class="btn primary" data-quick="vless-reality">VLESS Reality（推荐）</button>
+              <button class="btn" data-quick="vless-tcp">VLESS TCP 测试</button>
+              <button class="btn" data-quick="vless-ws">VLESS WebSocket</button>
+              <button class="btn" data-quick="ss2022">Shadowsocks 2022</button>
+            </div>
+            <p id="quick-result" class="muted" style="margin:.75rem 0 0;font-size:.85rem;word-break:break-all"></p>
+          </div>
+          <div id="inbound-list"></div>
+        </section>
+
+        <section id="tab-xray" class="tab hidden">
+          <h2>内核控制</h2>
+          <div class="card" style="margin-bottom:1rem">
+            <div class="row between" style="flex-wrap:wrap;gap:.75rem">
+              <div>
+                <div class="muted" style="font-size:.85rem">当前内核</div>
+                <div id="core-active-label" style="font-size:1.25rem;font-weight:700;margin-top:.25rem">—</div>
+                <div id="core-detail" class="muted" style="margin-top:.35rem;font-size:.85rem"></div>
+              </div>
+              <div class="row gap">
+                <button class="btn" id="btn-core-xray" data-core="xray">切换 Xray</button>
+                <button class="btn" id="btn-core-singbox" data-core="singbox">切换 sing-box</button>
+              </div>
+            </div>
+          </div>
+          <div class="row gap">
+            <button class="btn primary" id="btn-xray-restart">重启 / 应用配置</button>
+            <button class="btn" id="btn-xray-start">启动</button>
+            <button class="btn danger" id="btn-xray-stop">停止</button>
+            <button class="btn" id="btn-xray-config">预览配置</button>
+          </div>
+          <pre id="xray-logs" class="logbox"></pre>
+          <pre id="xray-config" class="logbox hidden"></pre>
+        </section>
+
+        <section id="tab-settings" class="tab hidden">
+          <h2>设置</h2>
+          <div class="card">
+            <label>界面主题</label>
+            <div class="theme-toggle" data-theme-toggle style="margin-bottom:1rem">
+              <button type="button" data-theme-set="dark">深色</button>
+              <button type="button" data-theme-set="light">浅色</button>
+            </div>
+            <label>公网域名 / IP（分享链接用）</label>
+            <div class="row gap">
+              <input id="public-host" placeholder="example.com" style="flex:1" />
+              <button class="btn primary" id="btn-save-host">保存</button>
+            </div>
+          </div>
+          <div class="card" style="margin-top:1rem">
+            <h3>修改密码</h3>
+            <label>原密码</label>
+            <input id="old-pass" type="password" />
+            <label>新密码</label>
+            <input id="new-pass" type="password" />
+            <button class="btn primary" id="btn-pass" style="margin-top:.5rem">更新密码</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="row between">
+        <h3 id="modal-title">新建入站</h3>
+        <button class="btn ghost" id="modal-close">✕</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
