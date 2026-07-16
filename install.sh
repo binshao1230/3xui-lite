@@ -111,14 +111,31 @@ try_release_package() {
   fi
   download "$asset" "$TMP_DIR/pkg.tar.gz"
   tar -xzf "$TMP_DIR/pkg.tar.gz" -C "$TMP_DIR"
-  # 找到解压出的目录
+  # 找到解压出的目录（兼容 Windows 打包无 +x 权限）
   if [[ -d "$TMP_DIR/3xui-lite-linux-${ARCH}" ]]; then
     PKG_DIR="$TMP_DIR/3xui-lite-linux-${ARCH}"
+  elif [[ -f "$TMP_DIR/3xui-lite" ]]; then
+    PKG_DIR="$TMP_DIR"
   else
-    PKG_DIR="$(find "$TMP_DIR" -maxdepth 2 -type f -name '3xui-lite' | head -1 | xargs -r dirname)"
+    local found
+    found="$(find "$TMP_DIR" -maxdepth 3 -type f -name '3xui-lite' 2>/dev/null | head -1 || true)"
+    if [[ -n "$found" ]]; then
+      PKG_DIR="$(cd "$(dirname "$found")" && pwd)"
+    fi
   fi
-  [[ -n "${PKG_DIR:-}" && -x "$PKG_DIR/3xui-lite" ]] || fail "安装包结构异常"
-  ok "已获取预编译安装包"
+  if [[ -z "${PKG_DIR:-}" || ! -f "$PKG_DIR/3xui-lite" ]]; then
+    yellow "安装包结构异常，目录列表:"
+    find "$TMP_DIR" -maxdepth 3 -type f 2>/dev/null | head -30 || true
+    fail "安装包结构异常（未找到 3xui-lite 二进制）"
+  fi
+  # Windows 打的 tar 常无可执行位，安装前强制 chmod
+  chmod +x "$PKG_DIR/3xui-lite" 2>/dev/null || true
+  chmod +x "$PKG_DIR/bin/xray" "$PKG_DIR/bin/sing-box" 2>/dev/null || true
+  chmod +x "$PKG_DIR/"*.sh 2>/dev/null || true
+  # 再校验文件存在且非空
+  [[ -s "$PKG_DIR/3xui-lite" ]] || fail "面板二进制为空: $PKG_DIR/3xui-lite"
+  [[ -f "$PKG_DIR/bin/xray" || -f "$PKG_DIR/bin/xray.exe" ]] || yellow "警告: 包内未找到 xray，将尝试在线补齐"
+  ok "已获取预编译安装包: $PKG_DIR"
   return 0
 }
 
@@ -206,7 +223,34 @@ install_files() {
     done
   fi
   mkdir -p "$INSTALL_DIR/data"
-  chmod +x "$INSTALL_DIR/3xui-lite" "$INSTALL_DIR/bin/xray" "$INSTALL_DIR/bin/sing-box" 2>/dev/null || true
+  # 强制可执行（修复 Windows 打包丢失 +x）
+  chmod +x "$INSTALL_DIR/3xui-lite" 2>/dev/null || true
+  chmod +x "$INSTALL_DIR/bin/xray" "$INSTALL_DIR/bin/sing-box" 2>/dev/null || true
+  chmod +x "$INSTALL_DIR/bin/"* 2>/dev/null || true
+  # 若内核缺失则在线补齐
+  if [[ ! -f "$INSTALL_DIR/bin/xray" ]]; then
+    yellow "补齐 xray..."
+    local xray_ver xray_url
+    xray_ver="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep -oE '"tag_name":\s*"[^"]+"' | head -1 | cut -d'"' -f4)"
+    xray_url="https://github.com/XTLS/Xray-core/releases/download/${xray_ver}/${XRAY_ASSET}"
+    download "$xray_url" "$TMP_DIR/xray-fix.zip"
+    unzip -qo "$TMP_DIR/xray-fix.zip" -d "$TMP_DIR/xray-fix"
+    cp -f "$TMP_DIR/xray-fix/xray" "$INSTALL_DIR/bin/xray"
+    cp -f "$TMP_DIR/xray-fix/geoip.dat" "$INSTALL_DIR/bin/" 2>/dev/null || true
+    cp -f "$TMP_DIR/xray-fix/geosite.dat" "$INSTALL_DIR/bin/" 2>/dev/null || true
+  fi
+  if [[ ! -f "$INSTALL_DIR/bin/sing-box" ]]; then
+    yellow "补齐 sing-box..."
+    local sb_ver sb_name sb_url sb_bin
+    sb_ver="$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -oE '"tag_name":\s*"[^"]+"' | head -1 | cut -d'"' -f4)"
+    sb_name="sing-box-${sb_ver#v}-linux-${ARCH}.tar.gz"
+    sb_url="https://github.com/SagerNet/sing-box/releases/download/${sb_ver}/${sb_name}"
+    download "$sb_url" "$TMP_DIR/sb-fix.tar.gz"
+    tar -xzf "$TMP_DIR/sb-fix.tar.gz" -C "$TMP_DIR"
+    sb_bin="$(find "$TMP_DIR" -type f -name sing-box | head -1)"
+    cp -f "$sb_bin" "$INSTALL_DIR/bin/sing-box"
+  fi
+  chmod +x "$INSTALL_DIR/3xui-lite" "$INSTALL_DIR/bin/xray" "$INSTALL_DIR/bin/sing-box"
   # helper scripts
   cat >"$INSTALL_DIR/start.sh" <<'EOS'
 #!/usr/bin/env bash
