@@ -9,9 +9,40 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 function toast(msg, type = "ok") {
   const el = $("#toast");
-  el.textContent = msg;
+  if (!el) {
+    console.warn("[toast]", msg);
+    return;
+  }
+  el.textContent = msg || "";
   el.className = `toast ${type}`;
-  setTimeout(() => el.classList.add("hidden"), 2800);
+  // 确保可见（覆盖 hidden）
+  el.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 3200);
+}
+
+function copyText(text) {
+  if (!text) return Promise.resolve(false);
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) {
+    return false;
+  }
 }
 
 // ----- theme -----
@@ -252,42 +283,59 @@ function renderInbounds() {
 async function showShareModal(inboundId, clientId, preferQR) {
   try {
     const res = await api(`/api/inbounds/${inboundId}/clients/${clientId}/link`);
-    if (!res.ok || !res.link) {
-      toast(res.msg || "无链接", "err");
+    if (!res || res.ok === false || !res.link) {
+      const detail = res?.msg || "无链接";
+      toast(detail, "err");
+      // 仍弹出说明，避免“完全没反应”
+      $("#modal-title").textContent = "无法生成链接";
+      $("#modal-body").innerHTML = `
+        <p class="err">${esc(detail)}</p>
+        <p class="muted" style="font-size:.9rem;line-height:1.5">
+          请到「设置」填写公网域名/IP；并确认客户端有 UUID（VLESS）或密码（SS2022）。
+        </p>
+        <pre class="logbox" style="max-height:160px">${esc(JSON.stringify(res || {}, null, 2))}</pre>
+        <button class="btn" id="share-close">关闭</button>`;
+      $("#share-close").onclick = closeModal;
+      openModal();
       return;
     }
-    let qr = res.qrcode;
-    if (!qr) {
-      const q = await api(`/api/inbounds/${inboundId}/clients/${clientId}/qrcode?format=json&size=320`);
-      if (q.ok) qr = q.qrcode;
-    }
-    await navigator.clipboard.writeText(res.link).catch(() => {});
+    // 优先用 URL 出图（带 token，兼容 HTTP 非安全上下文）
+    const tokenQ = encodeURIComponent(state.token || "");
+    const qrUrl = `/api/inbounds/${inboundId}/clients/${clientId}/qrcode?size=280&token=${tokenQ}&t=${Date.now()}`;
+    const qrData = res.qrcodeData || "";
+    await copyText(res.link);
     $("#modal-title").textContent = preferQR ? "分享二维码" : "分享链接 / 二维码";
     $("#modal-body").innerHTML = `
       <div style="text-align:center">
-        ${
-          qr
-            ? `<div class="qr-wrap"><img id="share-qr" src="${qr}" alt="qrcode" width="256" height="256" /></div>
-               <div class="row gap" style="justify-content:center;margin:.75rem 0">
-                 <a class="btn sm" id="btn-dl-qr" download="3xui-qrcode.png" href="${qr}">下载二维码</a>
-                 <button class="btn sm" id="btn-copy-link">复制链接</button>
-               </div>`
-            : `<p class="err">二维码生成失败，仍可复制链接</p>
-               <button class="btn sm" id="btn-copy-link">复制链接</button>`
-        }
-        <textarea id="share-link-text" readonly rows="4" style="width:100%;margin-top:.5rem;font-family:ui-monospace,Consolas,monospace;font-size:.8rem">${esc(res.link)}</textarea>
-        <p class="muted" style="font-size:.8rem;margin-top:.5rem">手机客户端可直接扫码导入（链接已尝试复制）</p>
+        <div class="qr-wrap">
+          <img id="share-qr" src="${qrData || qrUrl}" alt="qrcode" width="256" height="256"
+               onerror="this.onerror=null;this.src='${qrUrl}'" />
+        </div>
+        <div class="row gap" style="justify-content:center;margin:.75rem 0">
+          <a class="btn sm" id="btn-dl-qr" href="${qrUrl}" target="_blank" rel="noopener">打开二维码图</a>
+          <button class="btn sm primary" id="btn-copy-link">复制链接</button>
+        </div>
+        <p class="muted" style="font-size:.8rem;margin:0 0 .35rem">主机: ${esc(res.host || "")}</p>
+        <textarea id="share-link-text" readonly rows="5" style="width:100%;margin-top:.25rem;font-family:ui-monospace,Consolas,monospace;font-size:.8rem">${esc(res.link)}</textarea>
+        <p class="muted" style="font-size:.8rem;margin-top:.5rem">可扫码或全选复制上方链接；设置里可固定公网 IP/域名</p>
         <button class="btn" id="share-close" style="margin-top:.75rem">关闭</button>
       </div>`;
     $("#btn-copy-link")?.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(res.link).catch(() => {});
-      toast("链接已复制");
+      const ok = await copyText(res.link);
+      toast(ok ? "链接已复制" : "复制失败，请手动全选复制", ok ? "ok" : "err");
+      const ta = $("#share-link-text");
+      if (ta) {
+        ta.focus();
+        ta.select();
+      }
     });
     $("#share-close").onclick = closeModal;
     openModal();
-    if (!preferQR) toast("链接已复制，可扫码或粘贴");
+    toast(preferQR ? "二维码已生成" : "链接已生成");
   } catch (e) {
-    toast(e.message, "err");
+    console.error(e);
+    toast(e.message || "打开分享失败", "err");
+    alert("分享失败: " + (e.message || e));
   }
 }
 
@@ -676,7 +724,16 @@ async function loadLogs() {
 // ----- settings -----
 async function loadHost() {
   const res = await api("/api/settings/host");
-  if (res.ok) $("#public-host").value = res.host || "";
+  if (res.ok) {
+    // 优先显示已保存；否则用检测到的公网 Host 填入提示
+    $("#public-host").value = res.host || res.detectHost || "";
+    const tip = $("#host-detect-tip");
+    if (tip) {
+      tip.textContent = res.detectHost
+        ? `当前访问检测到主机: ${res.detectHost}（未设置时分享链接会自动用它）`
+        : "";
+    }
+  }
 }
 $("#btn-save-host").onclick = async () => {
   const res = await api("/api/settings/host", {

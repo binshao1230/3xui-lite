@@ -128,11 +128,12 @@
               <button type="button" data-theme-set="dark">深色</button>
               <button type="button" data-theme-set="light">浅色</button>
             </div>
-            <label>公网域名 / IP（分享链接用）</label>
+            <label>公网域名 / IP（分享链接 / 二维码用，必填）</label>
             <div class="row gap">
-              <input id="public-host" placeholder="example.com" style="flex:1" />
+              <input id="public-host" placeholder="你的服务器公网IP或域名，如 1.2.3.4" style="flex:1" />
               <button class="btn primary" id="btn-save-host">保存</button>
             </div>
+            <p id="host-detect-tip" class="muted" style="font-size:.8rem;margin:.5rem 0 0;line-height:1.45"></p>
           </div>
           <div class="card" style="margin-top:1rem">
             <h3>修改密码</h3>

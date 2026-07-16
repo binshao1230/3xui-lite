@@ -102,6 +102,7 @@ func (s *Server) quickSetup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		client = &c
+		// host 可能仍是 127.0.0.1；前端/客户端请求 link 接口时会再按请求 Host 生成
 		link = xray.ShareLink(s.getPublicHost(), ib, c)
 	}
 

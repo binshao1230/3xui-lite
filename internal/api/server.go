@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -145,6 +146,10 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		token = strings.TrimPrefix(token, "Bearer ")
+		if token == "" {
+			// img/src 等无法带 Header 时，允许 query token
+			token = r.URL.Query().Get("token")
+		}
 		if token == "" {
 			if c, err := r.Cookie("session"); err == nil {
 				token = c.Value
@@ -527,17 +532,33 @@ func (s *Server) deleteClient(w http.ResponseWriter, r *http.Request) {
 func (s *Server) clientLink(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
 	cid, _ := strconv.Atoi(mux.Vars(r)["cid"])
-	ib, c, link, err := s.resolveClientLink(id, cid)
+	ib, c, link, err := s.resolveClientLink(id, cid, r)
 	if err != nil {
 		writeErr(w, 404, err.Error())
 		return
 	}
-	_ = ib
-	_ = c
-	png, qerr := qrPNG(link, 256)
-	resp := map[string]any{"ok": true, "link": link, "host": s.getPublicHost()}
-	if qerr == nil {
-		resp["qrcode"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+	host := s.publicHost(r)
+	if link == "" {
+		writeJSON(w, 200, map[string]any{
+			"ok":       false,
+			"msg":      "无法生成分享链接（检查协议/UUID/密码）",
+			"host":     host,
+			"protocol": ib.Protocol,
+			"email":    c.Email,
+			"hasUuid":  c.UUID != "",
+			"hasPass":  c.Password != "",
+		})
+		return
+	}
+	resp := map[string]any{
+		"ok":     true,
+		"link":   link,
+		"host":   host,
+		"qrcode": fmt.Sprintf("/api/inbounds/%d/clients/%d/qrcode?size=280&token=", id, cid),
+	}
+	// 内嵌小图 base64（失败不阻塞链接）
+	if png, qerr := qrPNG(link, 256); qerr == nil {
+		resp["qrcodeData"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
 	}
 	writeJSON(w, 200, resp)
 }
@@ -545,7 +566,7 @@ func (s *Server) clientLink(w http.ResponseWriter, r *http.Request) {
 func (s *Server) clientQRCode(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
 	cid, _ := strconv.Atoi(mux.Vars(r)["cid"])
-	_, _, link, err := s.resolveClientLink(id, cid)
+	_, _, link, err := s.resolveClientLink(id, cid, r)
 	if err != nil {
 		writeErr(w, 404, err.Error())
 		return
@@ -570,6 +591,7 @@ func (s *Server) clientQRCode(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"ok":     true,
 			"link":   link,
+			"host":   s.publicHost(r),
 			"qrcode": "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
 		})
 		return
@@ -688,13 +710,50 @@ func (s *Server) previewConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getPublicHost() string {
 	var st models.Setting
 	if err := s.DB.First(&st, "key = ?", "public_host").Error; err == nil && st.Value != "" {
-		return st.Value
+		return strings.TrimSpace(st.Value)
 	}
 	return s.Host
 }
 
+// publicHost 优先使用设置的公网域名/IP；未设置时从请求 Host 自动推断（VPS 常用）。
+func (s *Server) publicHost(r *http.Request) string {
+	if h := s.getPublicHost(); h != "" && h != "127.0.0.1" && h != "localhost" && h != "0.0.0.0" {
+		// 去掉误填的协议与路径
+		h = strings.TrimPrefix(h, "https://")
+		h = strings.TrimPrefix(h, "http://")
+		if i := strings.Index(h, "/"); i >= 0 {
+			h = h[:i]
+		}
+		return h
+	}
+	if r == nil {
+		return s.getPublicHost()
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	// X-Forwarded-Host 可能是 host:port 列表
+	if i := strings.Index(host, ","); i >= 0 {
+		host = strings.TrimSpace(host[:i])
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == "127.0.0.1" || host == "localhost" {
+		return s.getPublicHost()
+	}
+	return host
+}
+
 func (s *Server) getHost(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "host": s.getPublicHost()})
+	writeJSON(w, 200, map[string]any{
+		"ok":          true,
+		"host":        s.getPublicHost(),
+		"detectHost":  s.publicHost(r),
+		"requestHost": r.Host,
+	})
 }
 
 func (s *Server) setHost(w http.ResponseWriter, r *http.Request) {
@@ -705,10 +764,16 @@ func (s *Server) setHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "参数错误")
 		return
 	}
-	st := models.Setting{Key: "public_host", Value: body.Host}
+	host := strings.TrimSpace(body.Host)
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	st := models.Setting{Key: "public_host", Value: host}
 	s.DB.Save(&st)
-	s.Host = body.Host
-	writeJSON(w, 200, map[string]any{"ok": true})
+	s.Host = host
+	writeJSON(w, 200, map[string]any{"ok": true, "host": host})
 }
 
 func first(a, b string) string {
@@ -718,7 +783,7 @@ func first(a, b string) string {
 	return b
 }
 
-func (s *Server) resolveClientLink(id, cid int) (models.Inbound, models.Client, string, error) {
+func (s *Server) resolveClientLink(id, cid int, r *http.Request) (models.Inbound, models.Client, string, error) {
 	var ib models.Inbound
 	if err := s.DB.First(&ib, id).Error; err != nil {
 		return ib, models.Client{}, "", fmt.Errorf("入站不存在")
@@ -727,7 +792,7 @@ func (s *Server) resolveClientLink(id, cid int) (models.Inbound, models.Client, 
 	if err := s.DB.Where("id = ? AND inbound_id = ?", cid, id).First(&c).Error; err != nil {
 		return ib, c, "", fmt.Errorf("客户端不存在")
 	}
-	link := xray.ShareLink(s.getPublicHost(), ib, c)
+	link := xray.ShareLink(s.publicHost(r), ib, c)
 	return ib, c, link, nil
 }
 
@@ -738,5 +803,10 @@ func qrPNG(content string, size int) ([]byte, error) {
 	if size < 128 {
 		size = 128
 	}
-	return qrcode.Encode(content, qrcode.Medium, size)
+	// 长链接用 Low 容错，提高生成成功率
+	lvl := qrcode.Medium
+	if len(content) > 200 {
+		lvl = qrcode.Low
+	}
+	return qrcode.Encode(content, lvl, size)
 }
