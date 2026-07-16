@@ -7,6 +7,7 @@
 - **双内核**：Xray / sing-box 可手动切换（同时只运行一个）
 - **协议**：VLESS（TCP/WS/gRPC，none/TLS/Reality）、Shadowsocks 2022、中转
 - **一键生成**入站（自动端口、密钥、客户端、分享链接、二维码）
+- **在线更新**：设置页一键从 GitHub Release 升级面板与内核
 - **深色 / 浅色**主题切换
 - 无订阅、无 WARP（有意精简）
 

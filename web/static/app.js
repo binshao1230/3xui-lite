@@ -759,6 +759,105 @@ $("#btn-pass").onclick = async () => {
   toast(res.ok ? "密码已更新" : res.msg || "失败", res.ok ? "ok" : "err");
 };
 
+// ----- online update -----
+state.updateInfo = null;
+
+async function checkUpdate() {
+  const box = $("#update-info");
+  const btn = $("#btn-do-update");
+  if (box) box.textContent = "检查中...";
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api("/api/update/check");
+    if (!res.ok) {
+      if (box) box.textContent = res.msg || "检查失败";
+      toast(res.msg || "检查失败", "err");
+      return;
+    }
+    state.updateInfo = res.data;
+    const d = res.data || {};
+    const lines = [
+      `当前版本: v${d.current || "?"}`,
+      `最新版本: v${d.latest || "?"}`,
+      d.hasUpdate ? "状态: 发现新版本" : "状态: 已是最新",
+      d.assetName ? `安装包: ${d.assetName}` : "",
+      d.reason ? `说明: ${d.reason}` : "",
+      d.htmlUrl ? `Release: ${d.htmlUrl}` : "",
+      "",
+      d.body ? String(d.body).slice(0, 800) : "",
+    ].filter((x) => x !== undefined);
+    if (box) box.textContent = lines.join("\n");
+    if (btn) {
+      btn.disabled = !(d.hasUpdate && d.canUpdate);
+    }
+    toast(d.hasUpdate ? `发现新版本 v${d.latest}` : "已是最新版本");
+  } catch (e) {
+    if (box) box.textContent = e.message || String(e);
+    toast(e.message || "检查失败", "err");
+  }
+}
+
+async function doUpdate() {
+  if (!confirm("确定从 GitHub 下载并更新？更新过程中面板会短暂重启。")) return;
+  const box = $("#update-info");
+  const btn = $("#btn-do-update");
+  if (btn) btn.disabled = true;
+  if (box) box.textContent = (box.textContent || "") + "\n\n正在下载并更新，请稍候...";
+  try {
+    const res = await api("/api/update", { method: "POST" });
+    if (!res.ok) {
+      toast(res.msg || "更新失败", "err");
+      if (box) box.textContent += "\n失败: " + (res.msg || "");
+      if (btn) btn.disabled = false;
+      return;
+    }
+    toast(res.msg || "更新完成，正在重启…");
+    if (box) box.textContent += "\n" + (res.msg || "ok") + "\n服务即将重启，10 秒后自动刷新…";
+    // wait for service restart then reload
+    let n = 0;
+    const timer = setInterval(async () => {
+      n++;
+      try {
+        const r = await fetch("/api/status", {
+          headers: { Authorization: `Bearer ${state.token}` },
+        });
+        if (r.ok) {
+          clearInterval(timer);
+          toast("更新成功，页面刷新");
+          location.reload();
+        }
+      } catch (_) {}
+      if (n > 30) {
+        clearInterval(timer);
+        toast("请手动刷新页面", "err");
+      }
+    }, 2000);
+  } catch (e) {
+    // 面板退出时 fetch 可能失败，进入轮询
+    if (box) box.textContent += "\n连接中断（可能正在重启），等待恢复…";
+    let n = 0;
+    const timer = setInterval(async () => {
+      n++;
+      try {
+        const r = await fetch("/api/status", {
+          headers: { Authorization: `Bearer ${state.token}` },
+        });
+        if (r.ok) {
+          clearInterval(timer);
+          location.reload();
+        }
+      } catch (_) {}
+      if (n > 30) {
+        clearInterval(timer);
+        toast(e.message || "更新后请手动刷新", "err");
+      }
+    }, 2000);
+  }
+}
+
+$("#btn-check-update")?.addEventListener("click", checkUpdate);
+$("#btn-do-update")?.addEventListener("click", doUpdate);
+
 // ----- utils -----
 function esc(s) {
   return String(s ?? "")

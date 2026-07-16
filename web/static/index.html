@@ -136,6 +136,17 @@
             <p id="host-detect-tip" class="muted" style="font-size:.8rem;margin:.5rem 0 0;line-height:1.45"></p>
           </div>
           <div class="card" style="margin-top:1rem">
+            <h3>在线更新</h3>
+            <p class="muted" style="font-size:.88rem;line-height:1.5;margin:.35rem 0 .75rem">
+              从 GitHub Release 检查并一键升级面板与内核（xray / sing-box）。更新后服务会自动重启。
+            </p>
+            <div class="row gap" style="flex-wrap:wrap;align-items:center">
+              <button class="btn" id="btn-check-update">检查更新</button>
+              <button class="btn primary" id="btn-do-update" disabled>一键更新</button>
+            </div>
+            <pre id="update-info" class="logbox" style="max-height:220px;margin-top:.85rem">(点击「检查更新」)</pre>
+          </div>
+          <div class="card" style="margin-top:1rem">
             <h3>修改密码</h3>
             <label>原密码</label>
             <input id="old-pass" type="password" />

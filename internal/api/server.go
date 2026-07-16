@@ -15,6 +15,7 @@ import (
 
 	"github.com/bin/3xui-lite/internal/core"
 	"github.com/bin/3xui-lite/internal/models"
+	"github.com/bin/3xui-lite/internal/version"
 	"github.com/bin/3xui-lite/internal/xray"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -23,7 +24,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const panelVersion = "0.2.0-lite"
+const panelVersion = version.Version
 
 type Server struct {
 	DB     *gorm.DB
@@ -75,6 +76,10 @@ func (s *Server) Router() http.Handler {
 
 	r.HandleFunc("/api/settings/host", s.auth(s.getHost)).Methods(http.MethodGet)
 	r.HandleFunc("/api/settings/host", s.auth(s.setHost)).Methods(http.MethodPost)
+
+	// Online update from GitHub Releases
+	r.HandleFunc("/api/update/check", s.auth(s.checkUpdate)).Methods(http.MethodGet)
+	r.HandleFunc("/api/update", s.auth(s.applyUpdate)).Methods(http.MethodPost)
 
 	// SPA
 	r.PathPrefix("/").Handler(s.spaHandler())
