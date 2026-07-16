@@ -23,8 +23,14 @@ function toast(msg, type = "ok") {
 
 function copyText(text) {
   if (!text) return Promise.resolve(false);
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text).then(() => true).catch(() => fallbackCopy(text));
+  try {
+    // HTTP / 非安全上下文下 navigator.clipboard 可能为 undefined
+    const clip = navigator.clipboard;
+    if (clip && typeof clip.writeText === "function") {
+      return clip.writeText(text).then(() => true).catch(() => fallbackCopy(text));
+    }
+  } catch (_) {
+    /* fall through */
   }
   return Promise.resolve(fallbackCopy(text));
 }
@@ -367,7 +373,7 @@ document.addEventListener("click", async (e) => {
     if (res.link && res.client?.id && res.data?.id) {
       await showShareModal(res.data.id, res.client.id, true);
     } else if (res.link) {
-      await navigator.clipboard.writeText(res.link).catch(() => {});
+      await copyText(res.link);
       prompt("一键配置完成，分享链接（已尝试复制）:", res.link);
     }
     loadInbounds();
