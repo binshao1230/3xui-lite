@@ -31,15 +31,34 @@ $env:SINGBOX_BIN="$PWD\bin\sing-box.exe"
 访问：http://127.0.0.1:18080  
 默认账号：`admin` / `admin`（请立即修改）
 
-## Linux VPS 安装
-
-发布包见 [Releases](../../releases)（`3xui-lite-linux-amd64.tar.gz`），或自行交叉编译：
+## Linux VPS 一键安装
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o 3xui-lite ./cmd/server
+curl -fsSL https://raw.githubusercontent.com/binshao1230/3xui-lite/main/install.sh | sudo bash
 ```
 
-一键安装示例（解压官方打包目录后）：
+或：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/binshao1230/3xui-lite/main/install.sh | sudo bash
+```
+
+- 面板：`http://服务器IP:18080`
+- 账号：`admin` / `admin`（请立即修改）
+- 安装目录：`/opt/3xui-lite`
+- 服务名：`3xui-lite`
+
+可选参数：
+
+```bash
+# 自定义监听与目录
+curl -fsSL https://raw.githubusercontent.com/binshao1230/3xui-lite/main/install.sh \
+  | sudo env XUI_LISTEN=0.0.0.0:18080 INSTALL_DIR=/opt/3xui-lite bash
+```
+
+### 离线 / 本地包安装
+
+从 [Releases](https://github.com/binshao1230/3xui-lite/releases) 下载 `3xui-lite-linux-amd64.tar.gz`：
 
 ```bash
 tar -xzf 3xui-lite-linux-amd64.tar.gz
@@ -47,7 +66,11 @@ cd 3xui-lite-linux-amd64
 sudo bash install.sh
 ```
 
-面板：`http://服务器IP:18080`
+### 自行编译
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o 3xui-lite ./cmd/server
+```
 
 详见 `scripts/linux/README-VPS.md`。
 

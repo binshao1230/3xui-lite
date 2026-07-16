@@ -16,7 +16,15 @@
 - root 权限（systemd 安装）
 - 开放面板端口 **18080**，以及你配置的入站端口（如 **8443**）
 
-## 安装（推荐）
+## 一键安装（推荐）
+
+在 VPS 上直接执行（会下载 Release 或在线组装）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/binshao1230/3xui-lite/main/install.sh | sudo bash
+```
+
+## 本地包安装
 
 ```bash
 # 上传压缩包后
