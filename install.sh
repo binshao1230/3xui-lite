@@ -202,31 +202,82 @@ assemble_online() {
   ok "在线组装完成"
 }
 
+# 安全替换正在运行的二进制（避免 Text file busy）
+safe_install_bin() {
+  local src="$1" dst="$2"
+  [[ -f "$src" ]] || return 0
+  mkdir -p "$(dirname "$dst")"
+  # 先写到临时文件再 mv（即使目标正在运行，Linux 也可 unlink/mv 覆盖路径）
+  local tmp="${dst}.new.$$"
+  cp -f "$src" "$tmp"
+  chmod +x "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$dst"
+}
+
+stop_running_panel() {
+  info "停止正在运行的面板/内核（避免 Text file busy）..."
+  if need_cmd systemctl; then
+    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+    systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+  fi
+  # nohup / 残留进程
+  if [[ -f "$INSTALL_DIR/data/panel.pid" ]]; then
+    kill "$(cat "$INSTALL_DIR/data/panel.pid" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$INSTALL_DIR/data/panel.pid"
+  fi
+  pkill -x xray 2>/dev/null || true
+  pkill -x sing-box 2>/dev/null || true
+  # 按路径杀面板（避免误杀同名无关进程：尽量精确）
+  if [[ -x "$INSTALL_DIR/3xui-lite" ]]; then
+    pkill -f "$INSTALL_DIR/3xui-lite" 2>/dev/null || true
+  fi
+  pkill -x 3xui-lite 2>/dev/null || true
+  sleep 1
+  # 仍占用则强杀
+  if pgrep -f "$INSTALL_DIR/3xui-lite" >/dev/null 2>&1; then
+    pkill -9 -f "$INSTALL_DIR/3xui-lite" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
 install_files() {
   info "安装到 $INSTALL_DIR"
-  mkdir -p "$INSTALL_DIR"
-  # 保留已有 data
+  mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/bin" "$INSTALL_DIR/data"
   if [[ -d "$INSTALL_DIR/data" ]]; then
     info "保留已有数据目录 data/"
   fi
-  # 复制除 data 外文件
-  if need_cmd rsync; then
-    rsync -a --exclude 'data' "$PKG_DIR/" "$INSTALL_DIR/"
+
+  # 必须先停服务，否则 cp 面板二进制会 Text file busy
+  stop_running_panel
+
+  # 面板主程序
+  if [[ -f "$PKG_DIR/3xui-lite" ]]; then
+    safe_install_bin "$PKG_DIR/3xui-lite" "$INSTALL_DIR/3xui-lite"
   else
-    # shell copy
-    cp -a "$PKG_DIR/3xui-lite" "$INSTALL_DIR/"
-    mkdir -p "$INSTALL_DIR/bin"
-    cp -a "$PKG_DIR/bin/." "$INSTALL_DIR/bin/"
-    # scripts if present
-    for f in start.sh stop.sh uninstall.sh README-VPS.md 3xui-lite.service; do
-      [[ -f "$PKG_DIR/$f" ]] && cp -a "$PKG_DIR/$f" "$INSTALL_DIR/"
-    done
+    fail "安装包中没有 3xui-lite 二进制"
   fi
-  mkdir -p "$INSTALL_DIR/data"
-  # 强制可执行（修复 Windows 打包丢失 +x）
+
+  # 内核与 geo 数据
+  mkdir -p "$INSTALL_DIR/bin"
+  for f in xray sing-box geoip.dat geosite.dat; do
+    if [[ -f "$PKG_DIR/bin/$f" ]]; then
+      if [[ "$f" == "xray" || "$f" == "sing-box" ]]; then
+        safe_install_bin "$PKG_DIR/bin/$f" "$INSTALL_DIR/bin/$f"
+      else
+        cp -f "$PKG_DIR/bin/$f" "$INSTALL_DIR/bin/$f"
+      fi
+    fi
+  done
+
+  # 其它脚本/说明（不覆盖 data）
+  for f in start.sh stop.sh uninstall.sh README-VPS.md 3xui-lite.service online-install.sh; do
+    [[ -f "$PKG_DIR/$f" ]] && cp -f "$PKG_DIR/$f" "$INSTALL_DIR/$f"
+  done
+
   chmod +x "$INSTALL_DIR/3xui-lite" 2>/dev/null || true
   chmod +x "$INSTALL_DIR/bin/xray" "$INSTALL_DIR/bin/sing-box" 2>/dev/null || true
-  chmod +x "$INSTALL_DIR/bin/"* 2>/dev/null || true
+  chmod +x "$INSTALL_DIR/"*.sh 2>/dev/null || true
+
   # 若内核缺失则在线补齐
   if [[ ! -f "$INSTALL_DIR/bin/xray" ]]; then
     yellow "补齐 xray..."
@@ -235,7 +286,7 @@ install_files() {
     xray_url="https://github.com/XTLS/Xray-core/releases/download/${xray_ver}/${XRAY_ASSET}"
     download "$xray_url" "$TMP_DIR/xray-fix.zip"
     unzip -qo "$TMP_DIR/xray-fix.zip" -d "$TMP_DIR/xray-fix"
-    cp -f "$TMP_DIR/xray-fix/xray" "$INSTALL_DIR/bin/xray"
+    safe_install_bin "$TMP_DIR/xray-fix/xray" "$INSTALL_DIR/bin/xray"
     cp -f "$TMP_DIR/xray-fix/geoip.dat" "$INSTALL_DIR/bin/" 2>/dev/null || true
     cp -f "$TMP_DIR/xray-fix/geosite.dat" "$INSTALL_DIR/bin/" 2>/dev/null || true
   fi
@@ -248,9 +299,10 @@ install_files() {
     download "$sb_url" "$TMP_DIR/sb-fix.tar.gz"
     tar -xzf "$TMP_DIR/sb-fix.tar.gz" -C "$TMP_DIR"
     sb_bin="$(find "$TMP_DIR" -type f -name sing-box | head -1)"
-    cp -f "$sb_bin" "$INSTALL_DIR/bin/sing-box"
+    safe_install_bin "$sb_bin" "$INSTALL_DIR/bin/sing-box"
   fi
   chmod +x "$INSTALL_DIR/3xui-lite" "$INSTALL_DIR/bin/xray" "$INSTALL_DIR/bin/sing-box"
+
   # helper scripts
   cat >"$INSTALL_DIR/start.sh" <<'EOS'
 #!/usr/bin/env bash
